@@ -118,6 +118,92 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
             }
         });
     }
+    private void initPanoramaCapture(double lat, double lon, float height)
+    {
+        if (!GeneralUtils.checkGpsCoordinate(homeLatitude, homeLongitude)) {
+            ToastUtils.setResultToToast("No home point!!!");
+            return;
+        }
+        List<TimelineElement> elements = new ArrayList<>();
+
+        missionControl = MissionControl.getInstance();
+        final TimelineEvent preEvent = null;
+        MissionControl.Listener listener = new MissionControl.Listener() {
+            @Override
+            public void onEvent(@Nullable TimelineElement element, TimelineEvent event, DJIError error) {
+                updateTimelineStatus(element, event, error);
+            }
+        };
+
+        elements.add(new TakeOffAction());
+        //go to pano location
+        WaypointMission.Builder waypointMissionBuilder = new WaypointMission.Builder().autoFlightSpeed(10f)
+                .maxFlightSpeed(15f)
+                .setExitMissionOnRCSignalLostEnabled(false)
+                .finishedAction(WaypointMissionFinishedAction.GO_HOME)
+                .flightPathMode(WaypointMissionFlightPathMode.NORMAL)
+                .gotoFirstWaypointMode(WaypointMissionGotoWaypointMode.SAFELY)
+                .headingMode(WaypointMissionHeadingMode.AUTO)
+                .repeatTimes(1);
+
+
+        Waypoint panoLocation = new Waypoint(lat, lon, height);
+        panoLocation.addAction(new WaypointAction(WaypointActionType.GIMBAL_PITCH,0)); //reset gimbal
+        panoLocation.addAction(new WaypointAction(WaypointActionType.ROTATE_AIRCRAFT, 0)); //heading north
+        waypointMissionBuilder.addWaypoint(panoLocation);
+        elements.add(Mission.elementFromWaypointMission(waypointMissionBuilder.build()));
+        //start pano
+        elements.addAll(takePanoWithGimbal(0,7,true));
+        elements.addAll(takePanoWithGimbal(0,7,false));
+        elements.addAll(takePanoWithGimbal(0,5,true));
+        elements.addAll(takePanoWithGimbal(0,3,false));
+
+        if (missionControl.scheduledCount() > 0) {
+            missionControl.unscheduleEverything();
+            missionControl.removeAllListeners();
+        }
+
+        missionControl.scheduleElements(elements);
+        missionControl.addListener(listener);
+    }
+    private List<TimelineElement> takePanoWithGimbal(int gimbalPitch, int photoCount,boolean isCW)
+    {
+        float angle = 360 / photoCount;
+        float initYaw;
+        List<TimelineElement> elements = new ArrayList<>();
+        final float INIT_COMLETION_TIME = 2;
+        final float ROTATE_COMLETION_TIME = 1.5f;
+        if (isCW)
+        {
+            initYaw = -180;
+            elements.add(addGimbalAction(gimbalPitch,0,initYaw,INIT_COMLETION_TIME));// initialize gimbal
+            for (int i = 0; i < photoCount; i++)
+            {
+                float azimuth=initYaw+angle*i;
+                elements.add(addGimbalAction(gimbalPitch,0,azimuth,ROTATE_COMLETION_TIME)); //rotate the gimbal
+                elements.add(new ShootPhotoAction());//take single photo
+            }
+        }
+        else
+        {
+            initYaw = 180;
+            elements.add(addGimbalAction(gimbalPitch,0,initYaw,INIT_COMLETION_TIME));// initialize gimbal
+            for (int i = 0; i < photoCount; i++)
+            {
+                float azimuth=initYaw-angle*i;
+                elements.add(addGimbalAction(gimbalPitch,0,azimuth,ROTATE_COMLETION_TIME)); //rotate the gimbal
+                elements.add(new ShootPhotoAction());//take single photo
+            }
+        }
+        return  elements;
+    }
+    private GimbalAttitudeAction addGimbalAction(float pitch, float roll, float yaw, float completionTime)
+    {
+        Attitude initAttitude = new Attitude(pitch,roll,yaw); //init gimbal yaw
+        GimbalAttitudeAction gimbalAction = new GimbalAttitudeAction(initAttitude);
+        gimbalAction.setCompletionTime(completionTime);
+        return gimbalAction;
+    }
 
     private void initTimeline() {
         if (!GeneralUtils.checkGpsCoordinate(homeLatitude, homeLongitude)) {
@@ -128,6 +214,7 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
         List<TimelineElement> elements = new ArrayList<>();
 
         missionControl = MissionControl.getInstance();
+
         final TimelineEvent preEvent = null;
         MissionControl.Listener listener = new MissionControl.Listener() {
             @Override
@@ -146,6 +233,17 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
         //GimbalAttitudeAction gimbalAction = new GimbalAttitudeAction(attitude);
         //gimbalAction.setCompletionTime(2);
         //elements.add(gimbalAction);
+        //test step, rotate the gimbal
+        setTimelinePlanToText("test: rotete the gimbal 360 degrees in 4 times ");
+        for (int i=0;i< 4;i++)
+        {
+            Attitude mAttitude = new Attitude(0,-10,i*90);
+            GimbalAttitudeAction gimbalAction = new GimbalAttitudeAction(mAttitude);
+            gimbalAction.setCompletionTime(2);
+            elements.add(gimbalAction);
+        }
+
+
 
         //Step 3: Go 10 meters from home point
         //setTimelinePlanToText("Step 3: Go 10 meters from home point");
@@ -192,6 +290,8 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
         //Step 11: go back home
         setTimelinePlanToText("Step 6: go back home");
         elements.add(new GoHomeAction());
+
+
 
         if (missionControl.scheduledCount() > 0) {
             missionControl.unscheduleEverything();
@@ -240,7 +340,7 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
                                                                                       .flightPathMode(WaypointMissionFlightPathMode.NORMAL)
                                                                                       .gotoFirstWaypointMode(WaypointMissionGotoWaypointMode.SAFELY)
                                                                                       .headingMode(WaypointMissionHeadingMode.AUTO)
-                                                                                      .repeatTimes(1);;
+                                                                                      .repeatTimes(1);
         List<Waypoint> waypoints = new LinkedList<>();
 
         Waypoint northPoint = new Waypoint(homeLatitude + 10 * GeneralUtils.ONE_METER_OFFSET, homeLongitude, 10f);
@@ -369,7 +469,8 @@ public class TimelineMissionControlView extends LinearLayout implements OnClickL
         }
         switch (v.getId()) {
             case R.id.btn_timeline_init:
-                initTimeline();
+                //initTimeline();
+                initPanoramaCapture(homeLatitude,homeLongitude,20);
                 break;
             case R.id.btn_timeline_start:
                 startTimeline();
